@@ -1,0 +1,58 @@
+name: verify
+on:
+  push:
+    branches: ['ci/genfromtxt-usecols-keys']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install nightly numpy
+        run: |
+          pip install pytest hypothesis
+          pip install --pre -i https://pypi.anaconda.org/scientific-python-nightly-wheels/simple numpy
+          cd /tmp && python -c "import numpy; print(numpy.__version__, numpy.__file__)"
+      - name: Baseline (new test file, unmodified _npyio_impl.py)
+        run: |
+          NP=$(cd /tmp && python -c "import numpy, os; print(os.path.dirname(numpy.__file__))")
+          cp "$GITHUB_WORKSPACE"/numpy/lib/tests/test_io.py "$NP/lib/tests/test_io.py"
+          cd /tmp && python -m pytest -q -p no:cacheprovider "$NP/lib/tests/test_io.py" 2>&1 | tail -40 || true
+      - name: With fix (overlay _npyio_impl.py)
+        run: |
+          NP=$(cd /tmp && python -c "import numpy, os; print(os.path.dirname(numpy.__file__))")
+          cp "$GITHUB_WORKSPACE"/numpy/lib/_npyio_impl.py "$NP/lib/_npyio_impl.py"
+          cd /tmp && python -m pytest -q -p no:cacheprovider "$NP/lib/tests/test_io.py" "$NP/lib/tests/test_loadtxt.py" "$NP/lib/tests/test__iotools.py" 2>&1 | tail -15; exit ${PIPESTATUS[0]}
+      - name: User guide example still works
+        run: |
+          cd /tmp && python - <<'PY'
+          import numpy as np
+          from io import StringIO
+          data = "N/A, 2, 3\n4, ,???"
+          kw = dict(delimiter=",", dtype=np.int_, names="a,b,c",
+                    missing_values={0: "N/A", 'b': " ", 2: "???"},
+                    filling_values={0: 0, 'b': 0, 2: -999})
+          print(np.genfromtxt(StringIO(data), **kw))
+          print(np.genfromtxt(StringIO(data), usecols=(0, -1), **kw))
+          PY
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          python -m pip install -U "pip>=25.1"
+          python -m pip install --group linter
+          ruff --version
+          ruff check
+          python tools/linter.py
