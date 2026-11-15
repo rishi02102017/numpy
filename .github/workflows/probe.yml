@@ -1,0 +1,23 @@
+name: probe
+on:
+  push:
+    branches: ['ci/numpy-probe']
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        src: [release, nightly]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          if [ "${{ matrix.src }}" = nightly ]; then
+            pip install --pre -i https://pypi.anaconda.org/scientific-python-nightly-wheels/simple numpy
+          else
+            pip install numpy
+          fi
+      - run: for f in probe*.py; do echo "=== $f"; python $f; done
